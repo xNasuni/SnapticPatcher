@@ -10,22 +10,24 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+var extendsPattern = regexp.MustCompile(`(?m)^extends\s+"res://([^"]+)"`)
 
 //go:embed framework/loader.gd
 var loaderGD []byte
 
-const (
-	autoloadKey = "autoload/SnapticMods"
-	autoloadVal = "*res://" + loaderPath
-	modsPrefix  = "snaptic/mods/"
-)
+//go:embed framework/mods_menu.gd
+var modsMenuGD []byte
 
-type modInfo struct {
-	Name string `json:"name"`
-	Main bool   `json:"main"`
-}
+const (
+	autoloadKey  = "autoload/SnapticBase"
+	autoloadVal  = "*res://" + loaderPath
+	modsPrefix   = "snaptic/mods/"
+	modsMenuPath = "snaptic/mods_menu.gd"
+)
 
 func addAutoload(settings []byte) ([]byte, error) {
 	if len(settings) < 8 || string(settings[:4]) != "ECFG" {
@@ -75,8 +77,7 @@ func applyMods(p *pack, src *io.SectionReader, key []byte, modsDir string) (int,
 		return 0, err
 	}
 
-	var infos []modInfo
-	count := 0
+	var found []modInfo
 	dirs, _ := os.ReadDir(modsDir)
 	for _, d := range dirs {
 		switch {
@@ -84,25 +85,40 @@ func applyMods(p *pack, src *io.SectionReader, key []byte, modsDir string) (int,
 		case !d.IsDir():
 			say("skip", grey, d.Name()+" (not a folder)")
 		default:
-			info, n, err := installMod(p, src, key, filepath.Join(modsDir, d.Name()), flags)
+			info, err := readMeta(filepath.Join(modsDir, d.Name()))
 			if err != nil {
 				return 0, err
 			}
-			infos = append(infos, info)
-			count += n
+			found = append(found, info)
 		}
+	}
+	ordered, err := resolve(found)
+	if err != nil {
+		return 0, err
+	}
+
+	var infos []modInfo
+	count := 0
+	claimed := map[string]string{}
+	for _, m := range ordered {
+		info, n, err := installMod(p, src, key, filepath.Join(modsDir, m.Dir), flags, m, claimed)
+		if err != nil {
+			return 0, err
+		}
+		infos = append(infos, info)
+		count += n
 	}
 
 	manifest, _ := json.Marshal(infos)
 	p.put(loaderPath, loaderGD, flags)
+	p.put(modsMenuPath, modsMenuGD, flags)
 	p.put("snaptic/mods.json", manifest, flags)
 	p.put("project.binary", settings, flags)
 	return count, nil
 }
 
-func installMod(p *pack, src *io.SectionReader, key []byte, root string, flags uint32) (modInfo, int, error) {
-	info := modInfo{Name: filepath.Base(root)}
-	say("mod", sky, info.Name)
+func installMod(p *pack, src *io.SectionReader, key []byte, root string, flags uint32, info modInfo, claimed map[string]string) (modInfo, int, error) {
+	say("mod", sky, info.ID+" "+info.Version)
 	count := 0
 
 	err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
@@ -118,9 +134,29 @@ func installMod(p *pack, src *io.SectionReader, key []byte, root string, flags u
 		count++
 
 		target, isOverride := strings.CutPrefix(rel, "override/")
+		if isOverride {
+			if owner, taken := claimed[target]; taken {
+				return fmt.Errorf("%s overridden by %s and %s", target, owner, info.ID)
+			}
+			claimed[target] = info.ID
+		}
+		if ext, isExt := strings.CutPrefix(rel, "extensions/"); isExt && strings.HasSuffix(ext, ".gd") {
+			m := extendsPattern.FindSubmatch(data)
+			if m == nil {
+				return fmt.Errorf("%s: must extend a res:// script by path", rel)
+			}
+			base := string(m[1])
+			if p.find(base) < 0 && p.find(base+".remap") < 0 {
+				return fmt.Errorf("%s: %s not found", rel, base)
+			}
+			info.Extensions = append(info.Extensions, rel)
+			p.put(modsPrefix+info.Dir+"/"+rel, data, flags)
+			item("^", sky, rel+" ("+base+")")
+			return nil
+		}
 		if !isOverride {
 			info.Main = info.Main || rel == "main.gd"
-			p.put(modsPrefix+info.Name+"/"+rel, data, flags)
+			p.put(modsPrefix+info.Dir+"/"+rel, data, flags)
 			item("+", mint, rel)
 			return nil
 		}

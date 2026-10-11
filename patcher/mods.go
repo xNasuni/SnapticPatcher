@@ -122,6 +122,9 @@ func installMod(p *pack, src *io.SectionReader, key []byte, root string, flags u
 	count := 0
 
 	err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
+		if err == nil && e.IsDir() && e.Name() == ".git" {
+			return filepath.SkipDir
+		}
 		if err != nil || e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			return err
 		}

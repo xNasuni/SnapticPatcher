@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
+	"image"
+	"image/png"
 	"strings"
 	"testing"
 )
@@ -83,5 +87,23 @@ func TestExtendsPattern(t *testing.T) {
 	}
 	if extendsPattern.Match([]byte("extends Node\n")) {
 		t.Fatal("matched a class extends")
+	}
+}
+
+func TestCtexPacksPng(t *testing.T) {
+	var src bytes.Buffer
+	if err := png.Encode(&src, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	out, err := ctex(src.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const dataOfs = 56
+	if string(out[dataOfs:dataOfs+4]) != "PNG " || !bytes.Equal(out[dataOfs+4:], src.Bytes()) {
+		t.Fatal("png data is not prefixed with the \"PNG \" marker")
+	}
+	if n := binary.LittleEndian.Uint32(out[dataOfs-4:]); int(n) != src.Len()+4 {
+		t.Fatalf("size %d, want %d", n, src.Len()+4)
 	}
 }

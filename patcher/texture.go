@@ -38,7 +38,8 @@ func ctex(pngData []byte) ([]byte, error) {
 	le(1, uint32(cfg.Width), uint32(cfg.Height), 0, 0xFFFFFFFF, 0, 0, 0)
 	le(1)
 	binary.Write(&b, binary.LittleEndian, []uint16{uint16(cfg.Width), uint16(cfg.Height)})
-	le(0, 5, uint32(len(pngData)))
+	le(0, 5, uint32(len(pngData)+4))
+	b.WriteString("PNG ")
 	b.Write(pngData)
 	return b.Bytes(), nil
 }

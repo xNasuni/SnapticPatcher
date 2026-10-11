@@ -51,7 +51,7 @@ func _ready() -> void:
 				continue
 			var node: Node = script.new()
 			node.name = id
-			var info := m.duplicate()
+			var info: Dictionary = m.duplicate()
 			info["dir"] = "res://snaptic/mods/%s/" % dir
 			node.set_meta("mod", info)
 			get_tree().root.add_child.call_deferred(node)

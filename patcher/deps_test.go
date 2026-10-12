@@ -75,7 +75,11 @@ func TestResolveErrors(t *testing.T) {
 }
 
 func TestLoaderVersionMatches(t *testing.T) {
-	if !strings.Contains(string(loaderGD), `const VERSION := "`+baseVersion+`"`) {
+	loader, err := framework.ReadFile("framework/loader.gd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(loader), `const VERSION := "`+baseVersion+`"`) {
 		t.Fatal("framework/loader.gd VERSION does not match baseVersion")
 	}
 }

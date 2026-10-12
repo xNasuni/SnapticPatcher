@@ -28,5 +28,4 @@ go test ./...
 
 build with Go 1.23 or newer.
 
-> ##### p.s. this is very vibecoded but it's guided with care at least >///<
-
+> ##### p.s. I use ai, but it's still handled with extreme care because I know what I'm doing >///<

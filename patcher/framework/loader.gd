@@ -7,12 +7,17 @@ const MENU_LIST := "Everything Else/TitleMarginContainer/VBoxContainer/MenuButto
 const MENU_TEMPLATE := "Options"
 const DEFAULT_ANCHOR := "Play"
 
-## Loaded mods in load order: {dir, id, name, version, dependencies, main}.
+var _log_path := "user://snaptic-%d.log" % OS.get_process_id()
+
 var mods: Array = []
 var _menu_entries: Array[Dictionary] = []
 var _scene_hooks: Dictionary = {}
-var _menu: Node
+
+var menu: Node
 var _menu_queued := false
+var _settings_stores := {}
+var _settings_pages := {}
+var _settings_panels := {}
 var _mods_menu: Control
 var _log_file: FileAccess
 var _mutex := Mutex.new()
@@ -28,7 +33,7 @@ class Tap extends Logger:
 
 
 func _ready() -> void:
-	_log_file = FileAccess.open("user://snaptic.log", FileAccess.WRITE)
+	_log_file = FileAccess.open(_log_path, FileAccess.WRITE)
 	var tap := Tap.new()
 	tap.sink = _write
 	OS.add_logger(tap)
@@ -61,24 +66,51 @@ func _ready() -> void:
 	_banner(", ".join(loaded) if loaded else "none")
 
 
-## Adds a main menu button below Play.
 func add_menu_button(label: String, callback: Callable) -> void:
 	_add_menu_entry(label, callback, DEFAULT_ANCHOR, false)
 
 
-## Adds a main menu button directly below `anchor` (a native button's name or text,
-## or another mod's button label). Buttons sharing an anchor are sorted alphabetically.
 func add_menu_button_below(label: String, callback: Callable, anchor: String) -> void:
 	_add_menu_entry(label, callback, anchor, false)
 
 
-## Adds a main menu button directly above `anchor`.
 func add_menu_button_above(label: String, callback: Callable, anchor: String) -> void:
 	_add_menu_entry(label, callback, anchor, true)
 
 
-## Calls `callback(root)` for every instance of the scene at `path`, once it is
-## ready, including instances that already exist. Edit the nodes in place.
+func settings(id: String) -> RefCounted:
+	if not _settings_stores.has(id):
+		var store: RefCounted = load("res://snaptic/settings_store.gd").new()
+		store.setup(id)
+		_settings_stores[id] = store
+	return _settings_stores[id]
+
+
+func add_settings_page(id: String, builder: Callable) -> void:
+	_settings_pages[id] = builder
+
+
+func has_settings(id: String) -> bool:
+	return _settings_pages.has(id)
+
+
+func open_settings(id: String, under: Control = null) -> void:
+	if not has_settings(id):
+		return
+	if not is_instance_valid(_settings_panels.get(id)):
+		var panel: Control = load("res://snaptic/settings_panel.gd").new()
+		panel.setup(settings(id))
+		_settings_pages[id].call(panel)
+		_settings_panels[id] = panel
+	_settings_panels[id].open(under)
+
+
+func create_panel(title: String, size: Vector2 = Vector2(560, 300)) -> Control:
+	var panel: Control = load("res://snaptic/menu_panel.gd").new()
+	panel.build(title, size)
+	return panel
+
+
 func on_scene(path: String, callback: Callable) -> void:
 	if not _scene_hooks.has(path):
 		_scene_hooks[path] = []
@@ -130,7 +162,7 @@ func _on_node_added(node: Node) -> void:
 
 
 func _on_menu_scene(node: Node) -> void:
-	_menu = node
+	menu = node
 	_queue_menu_refresh()
 
 
@@ -142,9 +174,9 @@ func _queue_menu_refresh() -> void:
 
 func _refresh_menu() -> void:
 	_menu_queued = false
-	if not is_instance_valid(_menu):
+	if not is_instance_valid(menu):
 		return
-	var list := _menu.get_node_or_null(MENU_LIST)
+	var list := menu.get_node_or_null(MENU_LIST)
 	var template := list.get_node_or_null(MENU_TEMPLATE) if list else null
 	if template == null:
 		push_warning("[snaptic] menu layout not recognised, skipping buttons")
@@ -185,7 +217,6 @@ func _menu_order(list: Node) -> Array:
 		known[str(n.get("text")).to_lower()] = true
 	for entry in _menu_entries:
 		known[entry.label.to_lower()] = true
-	# unknown anchors fall back to below the default
 	for entry in _menu_entries:
 		if not known.has(entry.anchor.to_lower()):
 			entry.anchor = DEFAULT_ANCHOR
@@ -223,19 +254,18 @@ func _place_group(above: bool, anchors: Array, order: Array, placed: Dictionary)
 func _show_mods() -> void:
 	if not is_instance_valid(_mods_menu):
 		var entries: Array = [{
-			"dir": "", "name": "Snaptic Base", "version": VERSION,
+			"id": "snapticbase", "dir": "", "name": "Snaptic Base", "version": VERSION,
 			"authors": ["xNasuni"], "description": "the modding framework",
 		}]
 		for m in mods:
 			entries.append({
-				"dir": m.dir, "name": m.get("name", m.get("id", m.dir)),
+				"id": m.get("id", m.dir), "dir": m.dir, "name": m.get("name", m.get("id", m.dir)),
 				"version": m.get("version", ""), "authors": m.get("authors", []),
 				"description": m.get("description", ""),
 			})
 		_mods_menu = load("res://snaptic/mods_menu.gd").new()
 		_mods_menu.setup(entries)
-		SettingsMenu.instance.get_parent().add_child(_mods_menu)
-	_mods_menu.open(_menu)
+	_mods_menu.open()
 
 
 func _log(msg: String) -> void:
@@ -243,22 +273,22 @@ func _log(msg: String) -> void:
 
 
 func _write(line: String) -> void:
+	var now := Time.get_unix_time_from_system()
+	var stamp := "%s.%03d" % [Time.get_time_string_from_system(false), int(fmod(now, 1.0) * 1000.0)]
+
 	_mutex.lock()
 	if _log_file:
-		_log_file.store_line(line)
+		_log_file.store_line("[%s] %s" % [stamp, line])
 		_log_file.flush()
 	_mutex.unlock()
 
 
 func _open_console() -> void:
-	var path := ProjectSettings.globalize_path("user://snaptic.log").replace("/", "\\")
+	var path := ProjectSettings.globalize_path(_log_path).replace("/", "\\")
 	var cmd := "$Host.UI.RawUI.WindowTitle='snaptic console'; Get-Content -Wait -Tail 500 -LiteralPath '%s'" % path
 	OS.create_process("powershell.exe", ["-NoLogo", "-NoExit", "-Command", cmd])
 
 
-## Loads a file shipped in a mod folder at runtime: images become textures, ogg,
-## mp3 and 16 bit pcm wav become audio streams, txt/json/cfg become strings and
-## anything else raw bytes. Returns null if it can't be read.
 func load_asset(path: String) -> Variant:
 	if not FileAccess.file_exists(path):
 		push_error("[snaptic] asset not found: " + path)

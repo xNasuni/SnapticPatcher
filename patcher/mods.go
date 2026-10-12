@@ -1,7 +1,7 @@
 package main
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -16,17 +16,13 @@ import (
 
 var extendsPattern = regexp.MustCompile(`(?m)^extends\s+"res://([^"]+)"`)
 
-//go:embed framework/loader.gd
-var loaderGD []byte
-
-//go:embed framework/mods_menu.gd
-var modsMenuGD []byte
+//go:embed framework/*.gd
+var framework embed.FS
 
 const (
-	autoloadKey  = "autoload/SnapticBase"
-	autoloadVal  = "*res://" + loaderPath
-	modsPrefix   = "snaptic/mods/"
-	modsMenuPath = "snaptic/mods_menu.gd"
+	autoloadKey = "autoload/SnapticBase"
+	autoloadVal = "*res://" + loaderPath
+	modsPrefix  = "snaptic/mods/"
 )
 
 func addAutoload(settings []byte) ([]byte, error) {
@@ -110,8 +106,11 @@ func applyMods(p *pack, src *io.SectionReader, key []byte, modsDir string) (int,
 	}
 
 	manifest, _ := json.Marshal(infos)
-	p.put(loaderPath, loaderGD, flags)
-	p.put(modsMenuPath, modsMenuGD, flags)
+	scripts, _ := framework.ReadDir("framework")
+	for _, s := range scripts {
+		data, _ := framework.ReadFile("framework/" + s.Name())
+		p.put("snaptic/"+s.Name(), data, flags)
+	}
 	p.put("snaptic/mods.json", manifest, flags)
 	p.put("project.binary", settings, flags)
 	return count, nil

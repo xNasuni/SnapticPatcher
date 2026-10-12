@@ -1,81 +1,31 @@
-extends Control
+extends "res://snaptic/menu_panel.gd"
 
-signal closed
-
-const THEME := "res://ui/_shared/themes/menu_screen_theme.tres"
-const CLICK_BUTTON := "res://levels/menu_screen_background/prefabs/click_button/click_button.gd"
-const BACK_GROUP := &"back_button"
 const SIZE := Vector2(560, 300)
-const FADE := 0.2
 const ACCENT := Color(0.5882353, 0.5882353, 1)
 
-var _menu: Node
-var _menu_tween: Tween
-var _tween: Tween
 var _blank: Texture2D
 var _entries: Array = []
 var _name: Label
 var _meta: Label
 var _desc: Label
+var _settings: Button
+var _current := 0
 
 
-## entries: [{dir, name, version, authors, description}]
 func setup(entries: Array) -> void:
 	_entries = entries
-	theme = load(THEME)
-	set_anchors_preset(PRESET_FULL_RECT)
-	mouse_filter = MOUSE_FILTER_IGNORE
-	z_index = 2
-	visible = false
+	build("Mods", SIZE)
 
 	var image := Image.create(16, 16, false, Image.FORMAT_RGBA8)
 	image.fill(Color(0.23, 0.23, 0.36))
 	_blank = ImageTexture.create_from_image(image)
 
-	var center := CenterContainer.new()
-	center.set_anchors_preset(PRESET_FULL_RECT)
-	center.mouse_filter = MOUSE_FILTER_IGNORE
-	add_child(center)
-
-	var frame := VBoxContainer.new()
-	frame.add_theme_constant_override("separation", 0)
-	center.add_child(frame)
-
-	var tabs := TabContainer.new()
-	tabs.custom_minimum_size = SIZE
-	tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
-	frame.add_child(tabs)
-
-	var page := MarginContainer.new()
-	page.name = "Mods"
-	for side in ["left", "top", "right", "bottom"]:
-		page.add_theme_constant_override("margin_" + side, 8)
-	tabs.add_child(page)
-
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
-	page.add_child(row)
+	content.add_child(row)
 
-	var list_scroll := ScrollContainer.new()
-	list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	list_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list_scroll.size_flags_stretch_ratio = 3.0
-	row.add_child(list_scroll)
-
-	var list := VBoxContainer.new()
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list.add_theme_constant_override("separation", 4)
-	list_scroll.add_child(list)
-
-	var detail_scroll := ScrollContainer.new()
-	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	detail_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	detail_scroll.size_flags_stretch_ratio = 7.0
-	row.add_child(detail_scroll)
-
-	var detail := VBoxContainer.new()
-	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	detail_scroll.add_child(detail)
+	var list := _column(row, 3.0)
+	var detail := _column(row, 7.0)
 
 	var header := HBoxContainer.new()
 	detail.add_child(header)
@@ -83,10 +33,11 @@ func setup(entries: Array) -> void:
 	_name.add_theme_font_size_override("font_size", 18)
 	_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(_name)
-	var settings := Button.new()
-	settings.text = "Settings"
-	settings.disabled = true  # until mods can register settings
-	header.add_child(settings)
+	_settings = Button.new()
+	_settings.text = "Settings"
+	_settings.disabled = true
+	_settings.pressed.connect(func() -> void: SnapticBase.open_settings(_entries[_current].id, self))
+	header.add_child(style_button(_settings))
 	_meta = Label.new()
 	_meta.add_theme_color_override("font_color", ACCENT)
 	detail.add_child(_meta)
@@ -107,48 +58,33 @@ func setup(entries: Array) -> void:
 		button.clip_text = true
 		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.add_theme_constant_override("icon_max_width", 24)
-		_style(button)
 		button.pressed.connect(_select.bind(i))
-		list.add_child(button)
+		list.add_child(style_button(button))
 
-	var actions := HBoxContainer.new()
-	actions.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	frame.add_child(actions)
-	var back := Button.new()
-	back.text = "Back"
-	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	back.add_to_group(BACK_GROUP)
-	_style(back)
-	back.pressed.connect(close)
-	actions.add_child(back)
-
+	add_back()
 	if list.get_child_count() > 0:
 		list.get_child(0).button_pressed = true
 		_select(0)
 
 
-func open(menu: Node) -> void:
-	_menu = menu
-	var content: Control = menu.get("everything_else")
-	var duration: float = menu.get("tween_duration")
-	if content:
-		_menu_tween = Helpers.fade_control(content, _menu_tween, false, duration, MOUSE_FILTER_IGNORE)
-	_tween = Helpers.fade_control(self, _tween, true, duration, MOUSE_FILTER_IGNORE)
-
-
-func close() -> void:
-	var duration := FADE
-	if is_instance_valid(_menu):
-		duration = _menu.get("tween_duration")
-		var content: Control = _menu.get("everything_else")
-		if content:
-			_menu_tween = Helpers.fade_control(content, _menu_tween, true, duration, MOUSE_FILTER_IGNORE)
-	_tween = Helpers.fade_control(self, _tween, false, duration)
-	closed.emit()
+func _column(row: Control, ratio: float) -> VBoxContainer:
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_stretch_ratio = ratio
+	row.add_child(scroll)
+	var column := VBoxContainer.new()
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_theme_constant_override("separation", 4)
+	scroll.add_child(column)
+	return column
 
 
 func _select(i: int) -> void:
+	_current = i
 	var e: Dictionary = _entries[i]
+	_settings.disabled = not SnapticBase.has_settings(e.id)
+	_settings.tooltip_text = "no settings for this mod" if _settings.disabled else "open settings"
 	_name.text = e.name
 	var meta: String = "v" + e.version
 	if not e.authors.is_empty():
@@ -164,9 +100,3 @@ func _icon(dir: String) -> Texture2D:
 		if image.load_png_from_buffer(FileAccess.get_file_as_bytes(path)) == OK:
 			return ImageTexture.create_from_image(image)
 	return _blank
-
-
-func _style(button: Button) -> void:
-	button.set_script(load(CLICK_BUTTON))
-	button.pressed.connect(AudioManager.play_sound_effect.bind(SFX.Name.MENU_SELECT))
-	button.mouse_entered.connect(AudioManager.play_sound_effect.bind(SFX.Name.MENU_HOVER))

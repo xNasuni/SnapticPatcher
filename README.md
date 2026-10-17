@@ -1,3 +1,7 @@
+>[!WARNING]
+> superseded by [gdpatch](https://gdpatch.dev) + [SnapticBase](https://github.com/xNasuni/SnapticBase)<br>
+> <ins>dont use this anymore</ins>
+
 # SnapticPatcher
 
 unofficial modding framework for the SNAPTIC demo
